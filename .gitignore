@@ -101,3 +101,4 @@ media/
 
 # uv / pip-tools
 # requirements*.txt   # <-- معمولاً باید در گیت باشد؛ حذف نکنید
+/app/__init__.py
