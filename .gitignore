@@ -1,0 +1,103 @@
+# ----------------------
+# Python basics
+# ----------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.python-version          # pyenv
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+wheels/
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Byte-compiled / caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+.cache/
+
+# Test artifacts
+junit.xml
+.pytest_cache/
+coverage.xml
+
+# Type checking / linting
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.code-workspace
+
+# OS cruft
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+uvicorn.log
+gunicorn*.log
+
+# Env & secrets (FastAPI configs)
+.env
+.env.*
+.envrc
+*.env
+
+# Databases (local dev)
+*.sqlite3
+*.db
+instance/
+
+# Static/media (اگر build می‌شن)
+staticfiles/
+media/
+
+# Alembic (نسخه‌ها رو معمولاً نگه می‌داریم؛ اینا رو نادیده نکن!)
+# alembic.ini          # <-- اگه لوکال شخصی‌سازی شد و نمی‌خواید کامیت کنید، آن‌کامنت کنید
+# alembic/versions/    # <-- معمولاً باید در گیت باشد
+
+# Docker (اختیاری)
+# اگر فایل‌های تولیدی دارید:
+*.pid
+*.seed
+
+# Poetry / PDM / Hatch
+# (lock‌ فایل‌ها معمولاً باید در گیت باشند)
+# poetry.lock
+# pdm.lock
+# hatch.toml
+
+# uv / pip-tools
+# requirements*.txt   # <-- معمولاً باید در گیت باشد؛ حذف نکنید
