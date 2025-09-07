@@ -43,12 +43,8 @@ htmlcov/
 
 # Test artifacts
 junit.xml
-.pytest_cache/
 coverage.xml
 
-# Type checking / linting
-.mypy_cache/
-.ruff_cache/
 
 # Notebooks
 .ipynb_checkpoints/
@@ -80,25 +76,24 @@ gunicorn*.log
 *.db
 instance/
 
-# Static/media (اگر build می‌شن)
+# Static/media (
 staticfiles/
 media/
 
-# Alembic (نسخه‌ها رو معمولاً نگه می‌داریم؛ اینا رو نادیده نکن!)
-# alembic.ini          # <-- اگه لوکال شخصی‌سازی شد و نمی‌خواید کامیت کنید، آن‌کامنت کنید
-# alembic/versions/    # <-- معمولاً باید در گیت باشد
+# Alembic
+# alembic.ini
+# alembic/versions/
 
-# Docker (اختیاری)
-# اگر فایل‌های تولیدی دارید:
+# Docker
+
 *.pid
 *.seed
 
 # Poetry / PDM / Hatch
-# (lock‌ فایل‌ها معمولاً باید در گیت باشند)
 # poetry.lock
 # pdm.lock
 # hatch.toml
 
 # uv / pip-tools
-# requirements*.txt   # <-- معمولاً باید در گیت باشد؛ حذف نکنید
+# requirements*.txt
 /app/__init__.py

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from uuid import UUID, uuid4
 from datetime import datetime
 
@@ -8,6 +8,12 @@ class CategoryBase(BaseModel):
     description: str | None = None
     parent_id: UUID | None = None
     image_url: str | None = None
+
+    @validator("parent_id", pre=True)
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 # برای ساخت Category جدید
 class CategoryCreate(CategoryBase):
@@ -19,6 +25,12 @@ class CategoryUpdate(BaseModel):
     description: str | None = None
     parent_id: UUID | None = None
     image_url: str | None = None
+
+    @validator("parent_id", pre=True)
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 # مدل اصلی Category در دیتابیس
 class Category(CategoryBase):
