@@ -237,24 +237,59 @@ class CategoryService(MongoCRUD):
         logger.info("Category updated", extra={"category_id": id_})
         return Category(**updated)
 
-    async def delete(self, id_: str) -> bool:
-        logger.debug("Deleting category", extra={"category_id": id_})
+    # داخل class CategoryService
 
+    async def _collect_descendant_ids(self, root_id: str) -> List[str]:
+        """
+        همه‌ی نوادگان یک دسته‌بندی را (بر اساس parent_id) برمی‌گرداند.
+        از BFS استفاده می‌کنیم تا با عمق‌های زیاد هم درست کار کند.
+        """
+        descendants: List[str] = []
+        queue: List[str] = [root_id]  # از ریشه شروع می‌کنیم، ولی خود ریشه را در خروجی برنمی‌گردانیم
+
+        while queue:
+            # می‌توانی برای کارایی، پردازش را تکه‌تکه کنی
+            current_batch = queue[:100]
+            queue = queue[100:]
+
+            cursor = self.collection.find(
+                {"parent_id": {"$in": current_batch}},
+                projection={"id": 1}
+            )
+            children = [doc["id"] async for doc in cursor]
+
+            if not children:
+                continue
+
+            descendants.extend(children)
+            queue.extend(children)  # ادامه‌ی جستجو روی نسل بعدی
+
+        return descendants
+
+    async def delete(self, id_: str) -> bool:
+        logger.debug("Deleting category (cascade)", extra={"category_id": id_})
+
+        # اول مطمئن شو دسته‌بندی وجود دارد
         current = await self.collection.find_one({"id": id_}, projection={"id": 1})
         if not current:
             return False
 
-        # Prevent delete if it has children
-        has_children = await self.collection.find_one({"parent_id": id_}, projection={"_id": 1})
-        if has_children:
-            raise ValueError("Cannot delete category with children")
+        # جمع‌آوری تمام نوادگان
+        descendants = await self._collect_descendant_ids(id_)
+        ids_to_delete = [id_] + descendants
 
-        result = await self.collection.delete_one({"id": id_})
+        # حذف آبشاری
+        result = await self.collection.delete_many({"id": {"$in": ids_to_delete}})
         deleted = result.deleted_count > 0
+
         if deleted:
-            logger.info("Category deleted", extra={"category_id": id_})
+            logger.info(
+                "Category cascade-deleted",
+                extra={"category_id": id_, "deleted_count": result.deleted_count}
+            )
         else:
-            logger.warning("Delete reported 0 deleted_count", extra={"category_id": id_})
+            logger.warning("Cascade delete affected 0 documents", extra={"category_id": id_})
+
         return deleted
 
     # ----------------------
