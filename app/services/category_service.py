@@ -244,7 +244,7 @@ class CategoryService(MongoCRUD):
         if not current:
             return False
 
-        # Prevent delete if has children
+        # Prevent delete if it has children
         has_children = await self.collection.find_one({"parent_id": id_}, projection={"_id": 1})
         if has_children:
             raise ValueError("Cannot delete category with children")
