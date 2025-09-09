@@ -1,11 +1,12 @@
 # app/services/category_service.py
 from typing import List, Tuple, Optional
-from uuid import uuid4
+from uuid import uuid4, UUID
 from datetime import datetime
 import logging
 
 from .base import MongoCRUD
 from app.models.category import Category, CategoryCreate, CategoryUpdate, ReorderCategory
+from ..db.mongo import db  # برای خواندن فایل‌ها
 
 logger = logging.getLogger("app.services.category_service")
 
@@ -28,7 +29,7 @@ class CategoryService(MongoCRUD):
         )
 
     # ----------------------
-    # Setup
+    # Indexes (مثل قبل)
     # ----------------------
     async def ensure_indexes(self) -> None:
         """Create required indexes (id, parent/order, unique name per parent)."""
@@ -42,9 +43,46 @@ class CategoryService(MongoCRUD):
         logger.info("✅ Category indexes ensured.")
 
     # ----------------------
-    # Helpers
+    # File helpers (جدید)
+    # ----------------------
+    async def _find_file_by_any_id(self, img_id_str: str) -> Optional[dict]:
+        """
+        فایل را هم با id (str/UUID Binary subtype 4) و هم با _id (str) جستجو می‌کند.
+        """
+        or_clauses = [{"id": img_id_str}, {"_id": img_id_str}]
+        try:
+            img_uuid = UUID(img_id_str)
+            or_clauses.append({"id": img_uuid})
+        except Exception:
+            pass
+        return await db["files"].find_one({"$or": or_clauses}, projection={"url": 1, "id": 1})
+
+    async def _autofill_image_url(self, data: dict) -> None:
+        """
+        اگر image_id باشد و image_url نیاید، url را از کالکشن files پر می‌کند.
+        اگر image_id تهی/None باشد و کلیدش در ورودی باشد، هر دو فیلد پاک می‌شوند.
+        """
+        if "image_id" in data:
+            img_id = data.get("image_id")
+
+            # پاک کردن تصویر
+            if img_id is None or (isinstance(img_id, str) and img_id.strip() == ""):
+                data["image_id"] = None
+                data["image_url"] = None
+                return
+
+            # پر کردن خودکار url
+            if img_id and not data.get("image_url"):
+                file_doc = await self._find_file_by_any_id(str(img_id))
+                if not file_doc:
+                    raise ValueError("invalid image_id")
+                data["image_url"] = file_doc.get("url")
+
+    # ----------------------
+    # Helpers (مثل قبل)
     # ----------------------
     async def _next_order(self, parent_id: Optional[str]) -> int:
+
         """
         Returns the next 'order' value under the given parent.
         If none found, returns 0.
@@ -85,7 +123,7 @@ class CategoryService(MongoCRUD):
             raise ValueError(f"Category with name '{name}' already exists under the same parent")
 
     # ----------------------
-    # CRUD
+    # CRUD (مثل قبل، با تزریق فایل)
     # ----------------------
     async def create(self, payload: CategoryCreate) -> Category:
         logger.debug("Creating category", extra={"payload": payload.model_dump()})
@@ -105,9 +143,12 @@ class CategoryService(MongoCRUD):
         data["created_at"] = datetime.utcnow()
         data["updated_at"] = datetime.utcnow()
 
-        # Assign order if not provided
+        # assign order if not provided
         if data.get("order") is None:
             data["order"] = await self._next_order(payload.parent_id)
+
+        # 🔗 پر کردن خودکار image_url بر اساس image_id
+        await self._autofill_image_url(data)
 
         await self.collection.insert_one(data)
         logger.info("Category created", extra={"category_id": data["id"]})
@@ -156,6 +197,9 @@ class CategoryService(MongoCRUD):
 
         update_doc = payload.model_dump(exclude_unset=True)
 
+        # 🔗 پر کردن/پاک کردن خودکار تصویر
+        await self._autofill_image_url(update_doc)
+
         # If order provided, normalize siblings if collision exists
         if "order" in update_doc and update_doc["order"] is not None:
             if update_doc["order"] < 0:
@@ -183,7 +227,7 @@ class CategoryService(MongoCRUD):
         updated = await self.collection.find_one_and_update(
             {"id": id_},
             {"$set": update_doc},
-            return_document=True,  # Motor: return_document=True -> ReturnDocument.AFTER
+            return_document=True,  # مثل نسخهٔ قبلی
         )
 
         if not updated:
@@ -214,7 +258,7 @@ class CategoryService(MongoCRUD):
         return deleted
 
     # ----------------------
-    # Reordering
+    # Reordering (مثل قبل)
     # ----------------------
     async def reorder(self, payload: List[ReorderCategory]) -> bool:
         """
