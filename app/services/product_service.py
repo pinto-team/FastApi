@@ -1,20 +1,40 @@
-from uuid import UUID
-from typing import List, Optional
-from pymongo import ASCENDING, DESCENDING
 from datetime import datetime
+from typing import List, Optional, Tuple, Iterable
+from uuid import UUID, uuid4
 
-from . import file_service
-from .base import MongoCRUD, _serialize
-from app.models.product import (
-    Product, ProductCreate, ProductUpdate, ProductResponse, WarehouseAvailabilityResponse
-)
-from app.models.store import Store
-from app.models.category import Category
-from app.models.brand import Brand
-from app.models.warehouse import Warehouse
+from fastapi import HTTPException
+from pymongo import ASCENDING, DESCENDING
+
 from app.db.mongo import db
-from app.services.category_service import category_service
+from app.models.brand import Brand
+from app.models.category import Category
+from app.models.product import (
+    Product,
+    ProductCreate,
+    ProductUpdate,
+    ProductResponse,
+)
 from app.services.brand_service import brand_service
+from app.services.category_service import category_service
+from app.services.file_service import file_service
+from app.services.base import MongoCRUD, _serialize
+
+
+def _deleted_filter(include_deleted: bool) -> dict:
+    """فیلتر رکوردهای حذف‌شده"""
+    if include_deleted:
+        return {}
+    return {"$or": [{"deleted_at": None}, {"deleted_at": {"$exists": False}}]}
+
+
+def _unique_uuids(items: Iterable[UUID]) -> List[UUID]:
+    seen = set()
+    out: List[UUID] = []
+    for x in items or []:
+        if x not in seen:
+            out.append(x)
+            seen.add(x)
+    return out
 
 
 class ProductService(MongoCRUD):
@@ -23,82 +43,50 @@ class ProductService(MongoCRUD):
             collection="products",
             model_cls=Product,
             create_cls=ProductCreate,
-            update_cls=ProductUpdate
+            update_cls=ProductUpdate,
         )
 
-    async def create(self, payload: ProductCreate) -> Product:
-        # Validate foreign keys
-        if payload.brand_id:
-            brand = await brand_service.get(payload.brand_id)
+    # ---------------------------
+    # Helpers
+    # ---------------------------
+    async def _validate_fk(
+        self, brand_id: Optional[UUID], category_id: Optional[UUID]
+    ) -> None:
+        if brand_id:
+            brand = await brand_service.get(brand_id)
             if not brand:
-                raise ValueError(f"Brand with id {payload.brand_id} does not exist")
-        if payload.category_id:
-            category = await category_service.get(payload.category_id)
+                raise HTTPException(status_code=404, detail="برند پیدا نشد.")
+        if category_id:
+            category = await category_service.get(category_id)
             if not category:
-                raise ValueError(f"Category with id {payload.category_id} does not exist")
-        return await super().create(payload)
+                raise HTTPException(status_code=404, detail="دسته‌بندی پیدا نشد.")
 
-    async def update(self, id_: UUID, patch: ProductUpdate) -> Product | None:
-        # FK checks on update
-        if patch.brand_id:
-            brand = await brand_service.get(patch.brand_id)
-            if not brand:
-                raise ValueError(f"Brand with id {patch.brand_id} does not exist")
-        if patch.category_id:
-            category = await category_service.get(patch.category_id)
-            if not category:
-                raise ValueError(f"Category with id {patch.category_id} does not exist")
+    async def _validate_images(
+        self, primary_image_id: Optional[UUID], images: Optional[List[UUID]]
+    ) -> List[UUID]:
+        if primary_image_id:
+            primary = await file_service.get(primary_image_id)
+            if not primary:
+                raise HTTPException(
+                    status_code=400,
+                    detail="شناسه تصویر اصلی (primary_image_id) نامعتبر است.",
+                )
 
-        # ensure updated_at
-        patch_dict = patch.dict(exclude_unset=True)
-        patch_dict["updated_at"] = datetime.utcnow()
-        return await super().update(id_, ProductUpdate(**patch_dict))
+        valid_images: List[UUID] = []
+        for fid in _unique_uuids(images or []):
+            f = await file_service.get(fid)
+            if not f:
+                raise HTTPException(
+                    status_code=400, detail="شناسه یکی از تصاویر (images) نامعتبر است."
+                )
+            valid_images.append(fid)
 
-    async def list(
-        self,
-        search: Optional[str] = None,
-        sort_by_price: Optional[str] = None,
-        page: int = 1,
-        limit: int = 10,
-    ) -> tuple[list[ProductResponse], int]:
-        query = {}
-        if search:
-            query = {
-                "$or": [
-                    {"name": {"$regex": search, "$options": "i"}},
-                    {"full_name": {"$regex": search, "$options": "i"}},
-                    {"description": {"$regex": search, "$options": "i"}},
-                    {"tags": {"$regex": search, "$options": "i"}},
-                ]
-            }
-
-        cursor = self.collection.find(query)
-        if sort_by_price:
-            order = ASCENDING if sort_by_price == "asc" else DESCENDING
-            cursor = cursor.sort("price", order)
-
-        cursor = cursor.skip((page - 1) * limit).limit(limit)
-        products = [self.model_cls(**_serialize(doc)) async for doc in cursor]
-        total = await self.collection.count_documents(query)
-        return await self._populate(products), total
-
-    async def get(self, id_: UUID) -> ProductResponse | None:
-        product = await super().get(id_)
-        if not product:
-            return None
-        populated = await self._populate([product])
-        return populated[0]
+        return valid_images
 
     async def _populate(self, products: List[Product]) -> List[ProductResponse]:
         responses: List[ProductResponse] = []
         for p in products:
             data = p.model_dump()
-
-            # Store
-            if getattr(p, "store_id", None):
-                store_doc = await db["stores"].find_one({"id": p.store_id})
-                if store_doc:
-                    data["store"] = Store(**_serialize(store_doc))
 
             # Category
             if p.category_id:
@@ -110,37 +98,167 @@ class ProductService(MongoCRUD):
             if p.brand_id:
                 brand_doc = await db["brands"].find_one({"id": p.brand_id})
                 if brand_doc:
-                    bd = _serialize(brand_doc)
-                    bd.pop("_id", None)  # _id لازم نیست
-                    bd["id"] = str(p.brand_id)  # 👈 اطمینان: id = UUID محصول
-                    data["brand"] = Brand(**bd)
-
-            # Warehouses availability
-            wa_list = []
-            for wa in (getattr(p, "warehouse_availability", []) or []):
-                wa_dict = wa.model_dump() if hasattr(wa, "model_dump") else dict(wa)
-                w_doc = await db["warehouses"].find_one({"id": wa_dict.get("warehouse_id")})
-                if w_doc:
-                    wa_dict["warehouse"] = Warehouse(**_serialize(w_doc))
-                wa_list.append(WarehouseAvailabilityResponse(**wa_dict))
-            data["warehouse_availability"] = wa_list
+                    data["brand"] = Brand(**_serialize(brand_doc))
 
             # Images
             imgs = []
+            if getattr(p, "primary_image_id", None):
+                try:
+                    primary = await file_service.get(p.primary_image_id)
+                    if primary:
+                        imgs.append(primary)
+                except Exception:
+                    pass
             for fid in (getattr(p, "images", []) or []):
+                if getattr(p, "primary_image_id", None) and fid == p.primary_image_id:
+                    continue
                 try:
                     f_doc = await file_service.get(fid)
                     if f_doc:
                         imgs.append(f_doc)
                 except Exception:
-                    # در صورت نبود سرویس فایل یا خطا، فقط رد می‌شویم
                     pass
             data["images"] = imgs
 
             responses.append(ProductResponse(**data))
         return responses
 
+    # ---------------------------
+    # CRUD
+    # ---------------------------
+    async def create(self, payload: ProductCreate) -> Product:
+        now = datetime.utcnow()
+        data = payload.model_dump(exclude_unset=True)
 
-# Instance for import in routes
+        # SKU uniqueness
+        dup_q = {"sku": data["sku"], **_deleted_filter(False)}
+        existing = await self.collection.find_one(dup_q)
+        if existing:
+            raise HTTPException(
+                status_code=400, detail=f"محصول با کد {data['sku']} وجود دارد."
+            )
+
+        # FK checks
+        await self._validate_fk(data.get("brand_id"), data.get("category_id"))
+
+        # Images
+        images = await self._validate_images(
+            data.get("primary_image_id"), data.get("images")
+        )
+        data["images"] = images
+
+        # system fields
+        new_id = uuid4()
+        data["_id"] = str(new_id)
+        data["id"] = new_id
+        data.setdefault("created_at", now)
+        data.setdefault("updated_at", now)
+        data.setdefault("deleted_at", None)
+
+        await self.collection.insert_one(data)
+        return Product(**data)
+
+    async def update(self, id_: UUID, patch: ProductUpdate) -> Product | None:
+        base_filter = {"_id": str(id_), **_deleted_filter(True)}
+        current = await self.collection.find_one(base_filter)
+        if not current:
+            raise HTTPException(status_code=404, detail="محصول پیدا نشد.")
+
+        if patch.brand_id or patch.category_id:
+            await self._validate_fk(patch.brand_id, patch.category_id)
+
+        if patch.sku:
+            dup = await self.collection.find_one(
+                {"sku": patch.sku, "_id": {"$ne": str(id_)}, **_deleted_filter(False)}
+            )
+            if dup:
+                raise HTTPException(
+                    status_code=400, detail=f"محصول با کد {patch.sku} وجود دارد."
+                )
+
+        patch_dict = patch.model_dump(exclude_unset=True)
+        if "primary_image_id" in patch_dict or "images" in patch_dict:
+            primary_image_id = patch_dict.get(
+                "primary_image_id", current.get("primary_image_id")
+            )
+            images = patch_dict.get("images", current.get("images"))
+            patch_dict["images"] = await self._validate_images(
+                primary_image_id, images
+            )
+
+        patch_dict["updated_at"] = datetime.utcnow()
+
+        await self.collection.update_one({"_id": str(id_)}, {"$set": patch_dict})
+        doc = await self.collection.find_one({"_id": str(id_)})
+        return Product(**_serialize(doc)) if doc else None
+
+    async def delete(self, id_: UUID) -> bool:
+        base = {"_id": str(id_), **_deleted_filter(False)}
+        res = await self.collection.update_one(
+            base,
+            {"$set": {"deleted_at": datetime.utcnow(), "is_active": False}},
+        )
+        if res.modified_count == 0:
+            raise HTTPException(status_code=404, detail="محصول پیدا نشد.")
+        return True
+
+    async def list(
+        self,
+        search: Optional[str] = None,
+        brand_id: Optional[UUID] = None,
+        category_id: Optional[UUID] = None,
+        tags: Optional[List[str]] = None,
+        is_active: Optional[bool] = None,
+        include_deleted: bool = False,
+        sort: Optional[str] = None,
+        page: int = 1,
+        limit: int = 10,
+    ) -> Tuple[List[ProductResponse], int]:
+        query: dict = {}
+        query.update(_deleted_filter(include_deleted))
+
+        if brand_id:
+            query["brand_id"] = brand_id
+        if category_id:
+            query["category_id"] = category_id
+        if is_active is not None:
+            query["is_active"] = is_active
+        if tags:
+            query["tags"] = {"$in": tags}
+        if search:
+            query["$or"] = [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"full_name": {"$regex": search, "$options": "i"}},
+                {"description": {"$regex": search, "$options": "i"}},
+                {"tags": {"$regex": search, "$options": "i"}},
+            ]
+
+        cursor = self.collection.find(query)
+
+        sort_map = {
+            "name_asc": ("name", ASCENDING),
+            "name_desc": ("name", DESCENDING),
+            "created_asc": ("created_at", ASCENDING),
+            "created_desc": ("created_at", DESCENDING),
+        }
+        key, direction = sort_map.get(sort or "created_desc")
+        cursor = cursor.sort(key, direction)
+
+        cursor = cursor.skip((page - 1) * limit).limit(limit)
+        products = [self.model_cls(**_serialize(doc)) async for doc in cursor]
+        total = await self.collection.count_documents(query)
+        return await self._populate(products), total
+
+    async def get(self, id_: UUID, include_deleted: bool = False) -> ProductResponse:
+        base = {"_id": str(id_), **_deleted_filter(include_deleted)}
+        doc = await self.collection.find_one(base)
+        if not doc:
+            raise HTTPException(status_code=404, detail="محصول پیدا نشد.")
+
+        product = self.model_cls(**_serialize(doc))
+        populated = await self._populate([product])
+        return populated[0]
+
+
 product_service = ProductService()
 __all__ = ["ProductService", "product_service"]

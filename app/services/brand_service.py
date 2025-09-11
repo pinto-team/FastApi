@@ -17,11 +17,13 @@ class BrandService:
         now = datetime.utcnow()
         data_dict = data.dict(exclude_unset=True)
 
-        # کمربند ایمنی: اگر logo_id هست ولی logo_url ست نشده، رد کن
+        # اگر logo_id هست ولی logo_url نیومده
         if data_dict.get("logo_id") and not data_dict.get("logo_url"):
             raise HTTPException(status_code=400, detail="logo_url must be set by server for given logo_id")
 
-        data_dict.setdefault("id", uuid4())
+        new_id = uuid4()
+        data_dict["_id"] = str(new_id)  # برای Mongo (string)
+        data_dict["id"] = new_id  # برای اپلیکیشن (UUID)
         data_dict.setdefault("created_at", now)
         data_dict.setdefault("updated_at", now)
 

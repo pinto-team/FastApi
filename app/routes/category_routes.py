@@ -1,3 +1,4 @@
+# app/routes/category_routes.py
 from uuid import UUID
 from typing import List, Optional
 import logging
@@ -7,7 +8,11 @@ from pydantic import BaseModel, Field
 
 from app.models.category import Category, CategoryCreate, CategoryUpdate, ReorderCategory
 from app.services.category_service import category_service
-from app.models.response import ApiSuccessResponse, make_success_response, make_pagination_meta
+from app.models.response import (
+    ApiSuccessResponse,
+    make_success_response,
+    make_pagination_meta,
+)
 
 logger = logging.getLogger("app.routes.category_routes")
 router = APIRouter()
@@ -21,7 +26,7 @@ class ReorderSinglePayload(BaseModel):
 
 
 # -------------------------------
-# Fixed routes FIRST (no conflict)
+# Bulk reorder
 # -------------------------------
 @router.put("/reorder", response_model=ApiSuccessResponse[dict])
 async def reorder_categories(request: Request, payload: List[ReorderCategory]):
@@ -39,8 +44,13 @@ async def reorder_categories(request: Request, payload: List[ReorderCategory]):
         raise HTTPException(400, str(e))
 
 
+# -------------------------------
+# Single reorder
+# -------------------------------
 @router.put("/{category_id}/reorder", response_model=ApiSuccessResponse[dict])
-async def reorder_single_category(request: Request, category_id: UUID, payload: ReorderSinglePayload):
+async def reorder_single_category(
+    request: Request, category_id: UUID, payload: ReorderSinglePayload
+):
     """
     Reorder a single category.
     Path: /categories/{category_id}/reorder
@@ -48,7 +58,7 @@ async def reorder_single_category(request: Request, category_id: UUID, payload: 
     """
     logger.debug(f"PUT /categories/{category_id}/reorder with payload: {payload}")
     try:
-        await category_service.reorder_single(str(category_id), payload.order)
+        await category_service.reorder_single(category_id, payload.order)
         return make_success_response(
             request, data={"status": "reordered"}, message="Category reordered successfully"
         )
@@ -57,13 +67,13 @@ async def reorder_single_category(request: Request, category_id: UUID, payload: 
 
 
 # -------------------------------
-# List (no conflict)
+# List categories
 # -------------------------------
 @router.get("/", response_model=ApiSuccessResponse[List[Category]])
 async def list_categories(
     request: Request,
     name: Optional[str] = Query(None, description="Filter by category name"),
-    parent_id: Optional[str] = Query(None, description="Filter by parent category"),
+    parent_id: Optional[UUID] = Query(None, description="Filter by parent category"),
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
 ):
@@ -85,12 +95,12 @@ async def list_categories(
 
 
 # -------------------------------
-# Parametric routes (UUID only)
+# CRUD routes
 # -------------------------------
 @router.get("/{category_id}", response_model=ApiSuccessResponse[Category])
 async def get_category(request: Request, category_id: UUID):
     logger.debug(f"GET /categories/{category_id}")
-    category = await category_service.get(str(category_id))
+    category = await category_service.get(category_id)
     if not category:
         raise HTTPException(404, "Category not found")
     return make_success_response(request, data=category, message="Category retrieved successfully")
@@ -99,7 +109,6 @@ async def get_category(request: Request, category_id: UUID):
 @router.post("/", response_model=ApiSuccessResponse[Category], status_code=201)
 async def create_category(request: Request, payload: CategoryCreate):
     logger.info(f"POST /categories with payload: {payload}")
-    logger.info(f"Payload dump: {payload.model_dump()}")
 
     try:
         created = await category_service.create(payload)
@@ -114,7 +123,7 @@ async def create_category(request: Request, payload: CategoryCreate):
 async def update_category(request: Request, category_id: UUID, payload: CategoryUpdate):
     logger.debug(f"PUT /categories/{category_id} with payload: {payload}")
     try:
-        updated = await category_service.update(str(category_id), payload)
+        updated = await category_service.update(category_id, payload)
         if not updated:
             raise HTTPException(404, "Category not found")
         return make_success_response(
@@ -128,7 +137,7 @@ async def update_category(request: Request, category_id: UUID, payload: Category
 async def patch_category_order(request: Request, category_id: UUID, payload: ReorderSinglePayload):
     logger.debug(f"PATCH /categories/{category_id}/order with payload: {payload}")
     try:
-        updated = await category_service.update(str(category_id), CategoryUpdate(order=payload.order))
+        updated = await category_service.update(category_id, CategoryUpdate(order=payload.order))
         if not updated:
             raise HTTPException(404, "Category not found")
         return make_success_response(
@@ -142,7 +151,7 @@ async def patch_category_order(request: Request, category_id: UUID, payload: Reo
 async def delete_category(request: Request, category_id: UUID):
     logger.debug(f"DELETE /categories/{category_id}")
     try:
-        success = await category_service.delete(str(category_id))
+        success = await category_service.delete(category_id)
         if not success:
             raise HTTPException(404, "Category not found")
         return make_success_response(
