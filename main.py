@@ -11,11 +11,8 @@ from fastapi.exceptions import RequestValidationError
 
 from app.config import get_settings
 from app.routes.product_routes import router as products_router
-from app.routes.store_routes import router as stores_router
 from app.routes.category_routes import router as categories_router
 from app.routes.brand_routes import router as brands_router
-from app.routes.warehouse_routes import router as warehouses_router
-from app.routes.user_routes import router as users_router
 from app.routes.upload_routes import router as upload_router
 from app.models.response import make_error_response, make_success_response, ErrorDetail
 from app.services.category_service import category_service
@@ -122,13 +119,10 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="uploads"), name="static")
 
-app.include_router(users_router, prefix="/users", tags=["Users"])
 app.include_router(upload_router, prefix="/files", tags=["Upload"])
 app.include_router(products_router, prefix="/products", tags=["Products"])
-app.include_router(stores_router, prefix="/stores", tags=["Stores"])
 app.include_router(categories_router, prefix="/categories", tags=["Categories"])
 app.include_router(brands_router, prefix="/brands", tags=["Brands"])
-app.include_router(warehouses_router, prefix="/warehouses", tags=["Warehouses"])
 
 
 @app.middleware("http")
