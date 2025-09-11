@@ -93,7 +93,3 @@ media/
 # poetry.lock
 # pdm.lock
 # hatch.toml
-
-# uv / pip-tools
-# requirements*.txt
-/app/__init__.py
