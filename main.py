@@ -16,6 +16,7 @@ from app.routes.brand_routes import router as brands_router
 from app.routes.upload_routes import router as upload_router
 from app.models.response import make_error_response, make_success_response, ErrorDetail
 from app.services.category_service import category_service
+from app.routes.user_routes import router as users_router
 
 
 # -------------------------------
@@ -123,6 +124,7 @@ app.include_router(upload_router, prefix="/files", tags=["Upload"])
 app.include_router(products_router, prefix="/products", tags=["Products"])
 app.include_router(categories_router, prefix="/categories", tags=["Categories"])
 app.include_router(brands_router, prefix="/brands", tags=["Brands"])
+app.include_router(users_router, prefix="/users", tags=["Users"])
 
 
 @app.middleware("http")
